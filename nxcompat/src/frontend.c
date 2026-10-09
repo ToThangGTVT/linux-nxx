@@ -10,7 +10,11 @@
 
 #define NXFE_MAX_ARGS 128
 
-static const char *const g_default_args[] = {
+#define I386_DIR "sdmc:/switch/qemu-kitkat"
+#define ARM_DIR "sdmc:/switch/qemu-kitkat-arm"
+
+/* Android-x86 4.4-r5 on the PC machine */
+static const char *const g_i386_args[] = {
     "-L", "romfs:/pc-bios",
     "-M", "pc",
     "-cpu", "qemu32,+sse3,+ssse3",
@@ -18,9 +22,9 @@ static const char *const g_default_args[] = {
     "-smp", "1",
     "-vga", "std",
     "-usb", "-device", "usb-tablet",
-    "-drive", "file=" NXFE_DIR "/android.qcow2,if=ide,index=0,media=disk,cache=writeback",
-    "-kernel", NXFE_DIR "/kernel",
-    "-initrd", NXFE_DIR "/initrd.img",
+    "-drive", "file=" I386_DIR "/android.qcow2,if=ide,index=0,media=disk,cache=writeback",
+    "-kernel", I386_DIR "/kernel",
+    "-initrd", I386_DIR "/initrd.img",
     /*
      * nomodeset + vga=788: VESA 800x600 framebuffer. pci=nocrs: the KitKat
      * kernel misreads QEMU's ACPI _CRS and moves the VGA BAR away from the
@@ -31,6 +35,40 @@ static const char *const g_default_args[] = {
     "-rtc", "base=localtime",
     "-nic", "none",
     "-display", "sdl",
+    NULL
+};
+
+/* Android SDK armeabi-v7a API 19 on vexpress-a15 (see arm/ in the repo) */
+static const char *const g_arm_args[] = {
+    "-M", "vexpress-a15",
+    "-cpu", "cortex-a15",
+    "-m", "1024",
+    "-smp", "1",
+    "-kernel", ARM_DIR "/zImage",
+    "-dtb", ARM_DIR "/vexpress.dtb",
+    "-initrd", ARM_DIR "/ramdisk.img",
+    "-append", "console=ttyAMA0 androidboot.hardware=ranchu "
+               "androidboot.console=ttyAMA0 qemu=1 qemu.gles=0",
+    "-drive", "if=none,id=system,format=qcow2,file=" ARM_DIR "/system.qcow2",
+    "-drive", "if=none,id=cache,format=qcow2,file=" ARM_DIR "/cache.qcow2",
+    "-drive", "if=none,id=data,format=qcow2,file=" ARM_DIR "/userdata.qcow2",
+    /* virtio-mmio transports fill from the last one: reverse order gives vda=system */
+    "-device", "virtio-blk-device,drive=data",
+    "-device", "virtio-blk-device,drive=cache",
+    "-device", "virtio-blk-device,drive=system",
+    "-display", "sdl",
+    NULL
+};
+
+typedef struct {
+    const char *target;
+    const char *dir;
+    const char *const *args;
+} NxfeProfile;
+
+static const NxfeProfile g_profiles[] = {
+    { "i386", I386_DIR, g_i386_args },
+    { "arm", ARM_DIR, g_arm_args },
 };
 
 static char *g_argv[NXFE_MAX_ARGS + 1];
@@ -64,16 +102,19 @@ static void nxfe_fatal_screen(const char *msg)
     consoleExit(NULL);
 }
 
-static void nxfe_open_log(void)
+static void nxfe_open_log(const char *dir)
 {
+    char path[256];
+
+    snprintf(path, sizeof(path), "%s/qemu.log", dir);
     if (__nxlink_host.s_addr != 0 && R_SUCCEEDED(socketInitializeDefault())) {
         nxlinkStdio();
         return;
     }
-    if (freopen(NXFE_DIR "/qemu.log", "w", stdout)) {
+    if (freopen(path, "w", stdout)) {
         setvbuf(stdout, NULL, _IOLBF, 0);
     }
-    if (freopen(NXFE_DIR "/qemu.log", "a", stderr)) {
+    if (freopen(path, "a", stderr)) {
         setvbuf(stderr, NULL, _IONBF, 0);
     }
 }
@@ -133,12 +174,20 @@ static int nxfe_load_args(const char *path, int argc)
     return argc;
 }
 
-int nxfe_init(int *argc, char ***argv)
+int nxfe_init(int *argc, char ***argv, const char *target)
 {
     AppletType type = appletGetAppletType();
+    const NxfeProfile *prof = &g_profiles[0];
+    char path[256];
     int n;
 
-    mkdir(NXFE_DIR, 0777);
+    for (size_t i = 0; i < sizeof(g_profiles) / sizeof(g_profiles[0]); i++) {
+        if (strcmp(g_profiles[i].target, target) == 0) {
+            prof = &g_profiles[i];
+        }
+    }
+
+    mkdir(prof->dir, 0777);
     romfsInit();
     atexit(nxfe_exit);
 
@@ -149,7 +198,7 @@ int nxfe_init(int *argc, char ***argv)
         return -1;
     }
 
-    nxfe_open_log();
+    nxfe_open_log(prof->dir);
 
     /* Overclock to 1785 MHz while QEMU runs; restored at exit */
     if (R_SUCCEEDED(appletSetCpuBoostMode(ApmCpuBoostMode_FastLoad))) {
@@ -160,17 +209,18 @@ int nxfe_init(int *argc, char ***argv)
         return 0; /* explicit arguments, e.g. from nxlink */
     }
 
-    g_argv[0] = (*argc > 0) ? (*argv)[0] : (char *)"qemu-system-i386";
-    n = nxfe_load_args(NXFE_DIR "/args.txt", 1);
+    g_argv[0] = (*argc > 0) ? (*argv)[0] : (char *)"qemu";
+    snprintf(path, sizeof(path), "%s/args.txt", prof->dir);
+    n = nxfe_load_args(path, 1);
     if (n < 0) {
         n = 1;
-        for (size_t i = 0; i < sizeof(g_default_args) / sizeof(g_default_args[0]); i++) {
-            g_argv[n++] = (char *)g_default_args[i];
+        for (const char *const *a = prof->args; *a && n < NXFE_MAX_ARGS; a++) {
+            g_argv[n++] = (char *)*a;
         }
     }
     g_argv[n] = NULL;
 
-    printf("qemu args:");
+    printf("qemu-system-%s args:", target);
     for (int i = 1; i < n; i++) {
         printf(" %s", g_argv[i]);
     }

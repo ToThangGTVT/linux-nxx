@@ -14,9 +14,9 @@ DISPLAY_ARGS=(-display cocoa,zoom-to-fit=on -name "Android KitKat ARM (Switch pr
 exec qemu-system-arm -M vexpress-a15 -cpu cortex-a15 -m 1024 -smp 1 \
   -kernel "$D/zImage" -dtb "$D/vexpress.dtb" -initrd "$D/ramdisk.img" \
   -append "console=ttyAMA0 androidboot.hardware=ranchu androidboot.console=ttyAMA0 qemu=1 qemu.gles=0" \
-  -drive if=none,id=system,format=raw,file="$D/system.img" \
-  -drive if=none,id=cache,format=raw,file="$D/cache.img" \
-  -drive if=none,id=data,format=raw,file="$D/userdata.img" \
+  -drive if=none,id=system,format=qcow2,file="$D/system.qcow2" \
+  -drive if=none,id=cache,format=qcow2,file="$D/cache.qcow2" \
+  -drive if=none,id=data,format=qcow2,file="$D/userdata.qcow2" \
   -device virtio-blk-device,drive=data -device virtio-blk-device,drive=cache -device virtio-blk-device,drive=system \
   "${DISPLAY_ARGS[@]}" \
   -chardev socket,id=ser0,path="$W/serial.sock",server=on,wait=off,logfile="$W/serial.log" -serial chardev:ser0 \

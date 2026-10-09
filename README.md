@@ -43,9 +43,10 @@ Cần: macOS hoặc Linux, [devkitPro](https://devkitpro.org/wiki/Getting_Starte
 để tạo ảnh đĩa thêm `qemu` và `e2fsprogs` (Homebrew).
 
 ```sh
-scripts/build-all.sh                                   # tải nguồn, vá, build deps + QEMU, đóng gói out/qemu-kitkat.nro
+scripts/build-all.sh                                   # tải nguồn, vá, build deps + QEMU i386/arm, đóng gói 2 bản .nro
 scripts/make-disk.sh images/android-x86-4.4-r5.iso 4G  # tạo out/sdcard/switch/qemu-kitkat/
-cp out/qemu-kitkat.nro out/sdcard/switch/
+arm/make-disks.sh                                      # (bản ARM) tạo out/sdcard/switch/qemu-kitkat-arm/
+cp out/qemu-kitkat*.nro out/sdcard/switch/
 ```
 
 ISO: <https://sourceforge.net/projects/android-x86/files/Release%204.4/android-x86-4.4-r5.iso/download>
@@ -65,7 +66,17 @@ Xem trước cùng cấu hình trên macOS (TCG, cửa sổ cocoa): `scripts/run
 
 Guest ARM thay cho x86: image chính thức **Android SDK armeabi-v7a API 19 (4.4.2)** chạy trên máy
 `vexpress-a15` của QEMU gốc, với kernel Linux 3.18 tự build (driver Android staging: binder, ashmem,
-logger, alarm). Đã boot tới màn hình chính trên macOS; **chưa có bản `.nro` cho Switch**.
+logger, alarm). Đã boot tới màn hình chính trên macOS (~30 giây từ lần thứ hai). Bản Switch là
+`qemu-kitkat-arm.nro` (đã build, **chưa chạy thử trên máy thật**), đọc dữ liệu từ `/switch/qemu-kitkat-arm/`:
+
+```
+/switch/qemu-kitkat-arm.nro
+/switch/qemu-kitkat-arm/zImage, vexpress.dtb, ramdisk.img
+/switch/qemu-kitkat-arm/system.qcow2, cache.qcow2, userdata.qcow2
+```
+
+`vexpress` chỉ có chuột PS/2 (tương đối), nên trên Switch màn hình cảm ứng hoạt động như **touchpad**:
+vuốt để di con trỏ, chạm nhẹ để click; cần analog trái cũng di con trỏ.
 
 ```sh
 arm/build-kernel.sh   # build zImage + DTB trong Docker (Debian stretch, gcc 6)

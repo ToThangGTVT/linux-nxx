@@ -195,7 +195,7 @@ index 000000000..b97b3dc8f
 +    return -ENOSYS;
 +}
 diff --git a/system/main.c b/system/main.c
-index b8f7157cc..b4f26ed42 100644
+index b8f7157cc..dd4c92547 100644
 --- a/system/main.c
 +++ b/system/main.c
 @@ -41,6 +41,10 @@
@@ -214,7 +214,7 @@ index b8f7157cc..b4f26ed42 100644
  int main(int argc, char **argv)
  {
 +#ifdef __SWITCH__
-+    if (nxfe_init(&argc, &argv) < 0) {
++    if (nxfe_init(&argc, &argv, TARGET_NAME) < 0) {
 +        return 1;
 +    }
 +#endif
@@ -388,17 +388,21 @@ index d345f6c70..43c89b969 100644
    ui_modules += {'sdl' : sdl_ss}
 diff --git a/ui/sdl2-switch.c b/ui/sdl2-switch.c
 new file mode 100644
-index 000000000..79d0d516c
+index 000000000..aeb79e9c9
 --- /dev/null
 +++ b/ui/sdl2-switch.c
-@@ -0,0 +1,213 @@
+@@ -0,0 +1,306 @@
 +/*
 + * Nintendo Switch controls for the SDL2 display
 + *
 + * The Switch has no keyboard or mouse, so Joy-Con input is translated into
 + * keys an Android guest understands, the left stick drives a pointer and the
 + * + button opens the system software keyboard to type text into the guest.
-+ * The touch screen already arrives as SDL mouse events (usb-tablet).
++ *
++ * With an absolute pointer (usb-tablet on the x86 PC machine) touches arrive
++ * as SDL's synthesized mouse events and map 1:1 to the screen. With only a
++ * relative mouse (PS/2 on ARM vexpress) the touch screen acts as a touchpad:
++ * drag to move the cursor, tap to click.
 + *
 + * SPDX-License-Identifier: GPL-2.0-or-later
 + */
@@ -408,14 +412,27 @@ index 000000000..79d0d516c
 +#include "ui/input.h"
 +#include "ui/kbd-state.h"
 +#include "ui/sdl2.h"
++#include <math.h>
 +#include <nxcompat/frontend.h>
 +
 +#define STICK_DEADZONE 8000
 +/* Pointer speed in guest pixels per poll at full stick deflection */
 +#define STICK_MAX_SPEED 14
++/* Touchpad mode: guest pixels per screen pixel, and what counts as a tap */
++#define TOUCHPAD_SPEED 1.5f
++#define TAP_MAX_MS 200
++#define TAP_MAX_TRAVEL 0.02f
 +
 +static SDL_GameController *pad;
 +static int ptr_x = -1, ptr_y = -1;
++static float rel_frac_x, rel_frac_y;
++
++static struct {
++    bool active;
++    SDL_FingerID id;
++    uint32_t down_ms;
++    float travel;
++} touch;
 +
 +static const QKeyCode button_keys[SDL_CONTROLLER_BUTTON_MAX] = {
 +    [SDL_CONTROLLER_BUTTON_A]             = Q_KEY_CODE_RET,
@@ -506,6 +523,71 @@ index 000000000..79d0d516c
 +    qemu_input_event_sync();
 +}
 +
++/* Move a relative pointer, carrying sub-pixel remainders between calls */
++static void queue_rel(struct sdl2_console *scon, float dx, float dy)
++{
++    int ix, iy;
++
++    rel_frac_x += dx;
++    rel_frac_y += dy;
++    ix = (int)rel_frac_x;
++    iy = (int)rel_frac_y;
++    rel_frac_x -= ix;
++    rel_frac_y -= iy;
++    if (ix || iy) {
++        qemu_input_queue_rel(scon->dcl.con, INPUT_AXIS_X, ix);
++        qemu_input_queue_rel(scon->dcl.con, INPUT_AXIS_Y, iy);
++        qemu_input_event_sync();
++    }
++}
++
++static void click(struct sdl2_console *scon, InputButton btn)
++{
++    qemu_input_queue_btn(scon->dcl.con, btn, true);
++    qemu_input_event_sync();
++    qemu_input_queue_btn(scon->dcl.con, btn, false);
++    qemu_input_event_sync();
++}
++
++/* Touchpad emulation for guests without an absolute pointer */
++static bool handle_touchpad(struct sdl2_console *scon, SDL_Event *ev)
++{
++    switch (ev->type) {
++    case SDL_MOUSEMOTION:
++        return ev->motion.which == SDL_TOUCH_MOUSEID;
++    case SDL_MOUSEBUTTONDOWN:
++    case SDL_MOUSEBUTTONUP:
++        return ev->button.which == SDL_TOUCH_MOUSEID;
++    case SDL_FINGERDOWN:
++        if (!touch.active) {
++            touch.active = true;
++            touch.id = ev->tfinger.fingerId;
++            touch.down_ms = ev->tfinger.timestamp;
++            touch.travel = 0;
++        }
++        return true;
++    case SDL_FINGERMOTION:
++        if (touch.active && ev->tfinger.fingerId == touch.id && scon->surface) {
++            queue_rel(scon,
++                      ev->tfinger.dx * surface_width(scon->surface) * TOUCHPAD_SPEED,
++                      ev->tfinger.dy * surface_height(scon->surface) * TOUCHPAD_SPEED);
++            touch.travel += fabsf(ev->tfinger.dx) + fabsf(ev->tfinger.dy);
++        }
++        return true;
++    case SDL_FINGERUP:
++        if (touch.active && ev->tfinger.fingerId == touch.id) {
++            touch.active = false;
++            if (ev->tfinger.timestamp - touch.down_ms < TAP_MAX_MS &&
++                touch.travel < TAP_MAX_TRAVEL) {
++                click(scon, INPUT_BUTTON_LEFT);
++            }
++        }
++        return true;
++    default:
++        return false;
++    }
++}
++
 +static void handle_trigger(struct sdl2_console *scon, SDL_Event *ev)
 +{
 +    static bool held[SDL_CONTROLLER_AXIS_MAX];
@@ -523,7 +605,7 @@ index 000000000..79d0d516c
 +        return;
 +    }
 +    held[ev->caxis.axis] = down;
-+    if (ptr_x >= 0) {
++    if (ptr_x >= 0 && qemu_input_is_absolute(scon->dcl.con)) {
 +        send_pointer(scon);
 +    }
 +    qemu_input_queue_btn(scon->dcl.con, btn, down);
@@ -533,6 +615,10 @@ index 000000000..79d0d516c
 +/* Returns true if the event was consumed */
 +bool sdl2_switch_handle_event(struct sdl2_console *scon, SDL_Event *ev)
 +{
++    if (!qemu_input_is_absolute(scon->dcl.con) && handle_touchpad(scon, ev)) {
++        return true;
++    }
++
 +    switch (ev->type) {
 +    case SDL_CONTROLLERDEVICEADDED:
 +        if (!pad) {
@@ -588,6 +674,13 @@ index 000000000..79d0d516c
 +        return false;
 +    }
 +
++    if (!qemu_input_is_absolute(scon->dcl.con)) {
++        queue_rel(scon,
++                  abs(ax) >= STICK_DEADZONE ? (float)ax * STICK_MAX_SPEED / 32767 : 0,
++                  abs(ay) >= STICK_DEADZONE ? (float)ay * STICK_MAX_SPEED / 32767 : 0);
++        return true;
++    }
++
 +    w = surface_width(scon->surface);
 +    h = surface_height(scon->surface);
 +    if (ptr_x < 0) {
@@ -606,19 +699,23 @@ index 000000000..79d0d516c
 +    return true;
 +}
 diff --git a/ui/sdl2.c b/ui/sdl2.c
-index 1c97d23a4..ed128bcf9 100644
+index 1c97d23a4..7e59ad2c2 100644
 --- a/ui/sdl2.c
 +++ b/ui/sdl2.c
-@@ -713,10 +713,21 @@ void sdl2_poll_events(struct sdl2_console *scon)
-             handle_windowevent(ev);
-             break;
-         default:
+@@ -674,6 +674,12 @@ void sdl2_poll_events(struct sdl2_console *scon)
+     }
+ 
+     while (SDL_PollEvent(ev)) {
 +#ifdef __SWITCH__
-+            if (sdl2_switch_handle_event(scon, ev)) {
-+                idle = 0;
-+            }
++        if (sdl2_switch_handle_event(scon, ev)) {
++            idle = 0;
++            continue;
++        }
 +#endif
-             break;
+         switch (ev->type) {
+         case SDL_KEYDOWN:
+             idle = 0;
+@@ -717,6 +723,12 @@ void sdl2_poll_events(struct sdl2_console *scon)
          }
      }
  
