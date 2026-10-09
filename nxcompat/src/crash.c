@@ -151,6 +151,56 @@ static void stack_scan(u64 sp)
     }
 }
 
+Result __real_svcBreak(u32 reason, uintptr_t address, uintptr_t size);
+void __real_abort(void);
+
+static void dump_here(void)
+{
+    u64 fp = (u64)__builtin_frame_address(0);
+
+    backtrace_fp(fp);
+    stack_scan(fp);
+    out("*** end of crash dump\n");
+}
+
+/*
+ * libnx reports fatal service errors (diagAbortWithResult, fatalThrow) with
+ * svcBreak, which never reaches the exception handler: log it first.
+ */
+Result __wrap_svcBreak(u32 reason, uintptr_t address, uintptr_t size)
+{
+    if (g_log_fd >= 0 && !(reason & BreakReason_NotificationOnlyFlag)) {
+        static const char *const names[] = { "panic", "assert", "user" };
+        u32 r = reason & 0xff;
+
+        out("\n*** CRASH: svcBreak (%s, reason 0x%x)", r < 3 ? names[r] : "other", reason);
+        if (size == sizeof(Result) && address) {
+            Result rc = *(const Result *)address;
+
+            out(", result 0x%x (%04u-%04u)", rc, 2000 + R_MODULE(rc), R_DESCRIPTION(rc));
+        }
+        out("\n");
+        dump_here();
+    }
+    return __real_svcBreak(reason, address, size);
+}
+
+/*
+ * newlib's abort() quietly exits to hbmenu. Log where it came from, then
+ * break so the app shows an error and Atmosphère writes a crash report.
+ */
+void __wrap_abort(void)
+{
+    Result rc = MAKERESULT(Module_Libnx, LibnxError_ShouldNotHappen);
+
+    if (g_log_fd >= 0) {
+        out("\n*** CRASH: abort()\n");
+        dump_here();
+    }
+    __real_svcBreak(BreakReason_Panic, (uintptr_t)&rc, sizeof(rc));
+    __real_abort();
+}
+
 void __libnx_exception_handler(ThreadExceptionDump *ctx)
 {
     char b1[32], b2[32];

@@ -19,7 +19,7 @@ package() {
   local args=(--nacp="$BUILD/$name.nacp")
   [ -n "$romfs" ] && args+=(--romfsdir="$romfs")
   [ -f "$NXX_ROOT/assets/icon.jpg" ] && args+=(--icon="$NXX_ROOT/assets/icon.jpg")
-  nacptool --create "$title" "linux-nxx" "0.2.1" "$BUILD/$name.nacp"
+  nacptool --create "$title" "linux-nxx" "0.2.2" "$BUILD/$name.nacp"
   elf2nro "$elf" "$OUT/$name.nro" "${args[@]}" >/dev/null
   cp "$elf" "$OUT/$name.elf"
   ls -la "$OUT/$name.nro" "$OUT/$name.elf"
