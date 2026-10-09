@@ -11,7 +11,7 @@ W=$ROOT/build/armtest
 mkdir -p "$W"
 DISPLAY_ARGS=(-display cocoa,zoom-to-fit=on -name "Android KitKat ARM (Switch preview)")
 [ "$1" = "--headless" ] && DISPLAY_ARGS=(-display none)
-exec qemu-system-arm -M vexpress-a15 -cpu cortex-a15 -m 1024 -smp 1 \
+exec qemu-system-arm -M vexpress-a15 -cpu cortex-a15 -m 2048 -smp 1 \
   -kernel "$D/zImage" -dtb "$D/vexpress.dtb" -initrd "$D/ramdisk.img" \
   -append "console=ttyAMA0 androidboot.hardware=ranchu androidboot.console=ttyAMA0 qemu=1 qemu.gles=0" \
   -drive if=none,id=system,format=qcow2,file="$D/system.qcow2" \

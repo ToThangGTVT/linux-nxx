@@ -1,0 +1,11 @@
+# Copy to /switch/qemu-kitkat/args.txt to override the built-in QEMU arguments.
+# Whitespace separates arguments; "double quotes" keep spaces; '#' starts a comment line.
+# These are the defaults (nxcompat/src/frontend.c).
+-L romfs:/pc-bios
+-M pc -cpu qemu32,+sse3,+ssse3 -m 1024 -smp 1
+-vga std -usb -device usb-tablet
+-drive file=sdmc:/switch/qemu-kitkat/android.qcow2,if=ide,index=0,media=disk,cache=writeback
+-kernel sdmc:/switch/qemu-kitkat/kernel
+-initrd sdmc:/switch/qemu-kitkat/initrd.img
+-append "root=/dev/ram0 androidboot.hardware=android_x86 SRC=/android-4.4-r5 DATA= nomodeset vga=788 pci=nocrs quiet"
+-rtc base=localtime -nic none -display sdl

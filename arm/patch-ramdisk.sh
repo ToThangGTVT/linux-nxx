@@ -15,8 +15,8 @@ rm -rf "$R" && mkdir -p "$R"
 # launcher dies with OOM when opening the app drawer.
 cat >> "$R/default.prop" <<'PROP'
 dalvik.vm.heapstartsize=8m
-dalvik.vm.heapgrowthlimit=64m
-dalvik.vm.heapsize=256m
+dalvik.vm.heapgrowthlimit=128m
+dalvik.vm.heapsize=512m
 PROP
 
 if [ "${DEBUG_SHELL:-0}" = 1 ]; then

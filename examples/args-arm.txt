@@ -1,0 +1,16 @@
+# Copy to /switch/qemu-kitkat-arm/args.txt to override the built-in QEMU arguments.
+# Whitespace separates arguments; "double quotes" keep spaces; '#' starts a comment line.
+# These are the defaults (nxcompat/src/frontend.c).
+-M vexpress-a15 -cpu cortex-a15 -m 2048 -smp 1
+-kernel sdmc:/switch/qemu-kitkat-arm/zImage
+-dtb sdmc:/switch/qemu-kitkat-arm/vexpress.dtb
+-initrd sdmc:/switch/qemu-kitkat-arm/ramdisk.img
+-append "console=ttyAMA0 androidboot.hardware=ranchu androidboot.console=ttyAMA0 qemu=1 qemu.gles=0"
+-drive if=none,id=system,format=qcow2,file=sdmc:/switch/qemu-kitkat-arm/system.qcow2
+-drive if=none,id=cache,format=qcow2,file=sdmc:/switch/qemu-kitkat-arm/cache.qcow2
+-drive if=none,id=data,format=qcow2,file=sdmc:/switch/qemu-kitkat-arm/userdata.qcow2
+# reverse order: the guest then sees vda=system vdb=cache vdc=data
+-device virtio-blk-device,drive=data
+-device virtio-blk-device,drive=cache
+-device virtio-blk-device,drive=system
+-display sdl

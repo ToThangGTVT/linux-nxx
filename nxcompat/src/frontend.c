@@ -42,7 +42,8 @@ static const char *const g_i386_args[] = {
 static const char *const g_arm_args[] = {
     "-M", "vexpress-a15",
     "-cpu", "cortex-a15",
-    "-m", "1024",
+    /* vexpress-a15 maxes out at 2 GiB without LPAE; Dalvik heap is 128m/512m */
+    "-m", "2048",
     "-smp", "1",
     "-kernel", ARM_DIR "/zImage",
     "-dtb", ARM_DIR "/vexpress.dtb",
