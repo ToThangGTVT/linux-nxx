@@ -10,6 +10,15 @@ OUT=$ROOT/out/sdcard/switch/qemu-kitkat-arm
 rm -rf "$R" && mkdir -p "$R"
 (cd "$R" && gzip -dc "$SDK/ramdisk.img" | cpio -id --quiet)
 
+# Dalvik heap limits normally come from the emulator's qemu-props (via qemud),
+# which upstream QEMU cannot provide; without them apps get 16 MB and the
+# launcher dies with OOM when opening the app drawer.
+cat >> "$R/default.prop" <<'PROP'
+dalvik.vm.heapstartsize=8m
+dalvik.vm.heapgrowthlimit=64m
+dalvik.vm.heapsize=256m
+PROP
+
 if [ "${DEBUG_SHELL:-0}" = 1 ]; then
   BB=$ROOT/images/arm/tools/busybox-armv7l
   [ -f "$BB" ] || curl -fsSL -o "$BB" https://busybox.net/downloads/binaries/1.31.0-defconfig-multiarch-musl/busybox-armv7l
