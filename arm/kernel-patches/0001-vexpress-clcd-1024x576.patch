@@ -1,0 +1,37 @@
+--- a/arch/arm/boot/dts/vexpress-v2m-rs1.dtsi
++++ b/arch/arm/boot/dts/vexpress-v2m-rs1.dtsi
+@@ -251,7 +251,7 @@
+ 				clocks = <&v2m_oscclk1>, <&smbclk>;
+ 				clock-names = "clcdclk", "apb_pclk";
+ 				memory-region = <&v2m_video_ram>;
+-				max-memory-bandwidth = <50350000>; /* 16bpp @ 25.175MHz */
++				max-memory-bandwidth = <130000000>; /* 16bpp @ 60MHz, with headroom: the driver rounds bpp down */
+ 
+ 				port {
+ 					v2m_clcd_pads: endpoint {
+@@ -270,15 +270,16 @@
+ 					};
+ 
+ 					panel-timing {
+-						clock-frequency = <25175000>;
+-						hactive = <640>;
+-						hback-porch = <40>;
+-						hfront-porch = <24>;
+-						hsync-len = <96>;
+-						vactive = <480>;
+-						vback-porch = <32>;
+-						vfront-porch = <11>;
+-						vsync-len = <2>;
++						/* 1024x576 (16:9 like the Switch screen; PL111 lines max out at 1024 px). 60MHz stays inside oscclk1's range */
++						clock-frequency = <60000000>;
++						hactive = <1024>;
++						hback-porch = <220>;
++						hfront-porch = <110>;
++						hsync-len = <40>;
++						vactive = <576>;
++						vback-porch = <20>;
++						vfront-porch = <5>;
++						vsync-len = <5>;
+ 					};
+ 				};
+ 			};

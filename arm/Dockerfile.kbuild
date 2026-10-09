@@ -1,0 +1,6 @@
+# Toolchain for the 3.18 ARM kernel: Debian stretch (gcc 6)
+FROM debian:stretch
+RUN echo "deb http://archive.debian.org/debian stretch main" > /etc/apt/sources.list \
+ && apt-get -o Acquire::Check-Valid-Until=false update -qq \
+ && apt-get install -y -qq --no-install-recommends gcc libc6-dev gcc-arm-linux-gnueabihf make bc \
+ && rm -rf /var/lib/apt/lists/*

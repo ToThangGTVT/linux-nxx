@@ -61,6 +61,24 @@ Xem trước cùng cấu hình trên macOS (TCG, cửa sổ cocoa): `scripts/run
 | `patches/glib-2.82.5-horizon.patch` | chỉ build glib/gthread/gmodule, vá vài API thiếu trong newlib |
 | `scripts/` | build, đóng gói, tạo ảnh đĩa, chạy thử trên Mac |
 
+## Bản ARM (thử nghiệm)
+
+Guest ARM thay cho x86: image chính thức **Android SDK armeabi-v7a API 19 (4.4.2)** chạy trên máy
+`vexpress-a15` của QEMU gốc, với kernel Linux 3.18 tự build (driver Android staging: binder, ashmem,
+logger, alarm). Đã boot tới màn hình chính trên macOS; **chưa có bản `.nro` cho Switch**.
+
+```sh
+arm/build-kernel.sh   # build zImage + DTB trong Docker (Debian stretch, gcc 6)
+arm/make-disks.sh     # tải image SDK, tạo out/sdcard/switch/qemu-kitkat-arm/
+arm/run-mac.sh        # xem trước trên macOS
+```
+
+- `androidboot.hardware=ranchu`: Android gắn system/cache/data từ virtio `vda/vdb/vdc`. QEMU gán
+  `virtio-blk-device` từ transport cuối, nên trên dòng lệnh ổ được khai báo ngược (data, cache, system).
+- Màn hình PL111 CLCD 1024x576 16bpp (`arm/kernel-patches/`): PL111 giới hạn 1024 px/dòng; driver làm
+  tròn bpp xuống nên `max-memory-bandwidth` phải dư; gralloc của Android cần 16bpp.
+- Cần `CONFIG_LBDAF` để gắn ext4 có `huge_file` (userdata của SDK).
+
 ## Ghi chú kỹ thuật
 
 - Ảnh đĩa là ext4 trần (không bảng phân vùng, không bootloader); QEMU boot thẳng `-kernel/-initrd`, initrd Android-x86 tự tìm `SRC=/android-4.4-r5`. Tắt `metadata_csum`, `metadata_csum_seed`, `orphan_file` vì kernel 4.0.9 không mount được.
