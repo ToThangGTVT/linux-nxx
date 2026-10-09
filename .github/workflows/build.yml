@@ -42,6 +42,17 @@ jobs:
           path: out/qemu-kitkat-arm.nro
           if-no-files-found: error
 
+      # Unstripped ELF matching the .nro: resolves the elf+OFFSET addresses of a crash dump in qemu.log
+      - name: Compress ELF
+        run: xz -T0 -k out/qemu-kitkat-arm.elf
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qemu-kitkat-arm-elf
+          path: out/qemu-kitkat-arm.elf.xz
+          compression-level: 0
+          if-no-files-found: error
+
   kernel:
     name: Android kernel (zImage + DTB)
     runs-on: ubuntu-latest
@@ -80,6 +91,7 @@ jobs:
         with:
           files: |
             dist/qemu-kitkat-arm.nro
+            dist/qemu-kitkat-arm.elf.xz
             dist/zImage
             dist/vexpress.dtb
           generate_release_notes: true

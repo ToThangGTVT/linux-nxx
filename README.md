@@ -95,7 +95,17 @@ Tạo `/switch/qemu-kitkat-arm/args.txt` để thay toàn bộ tham số mặc �
 | App thoát ngay, log có "failed to create ... JIT memory" | Loader không cấp JIT CodeMemory. Cập nhật Atmosphère và hbloader |
 | Màn hình đen lâu | Lần boot đầu Android dexopt mọi ứng dụng; trên Switch có thể mất nhiều phút. Xem bước tuỳ chọn ở mục 2 |
 | Không vào được Internet | Kiểm tra Switch đã kết nối Wi-Fi trước khi mở app |
+| App bị đóng (lỗi `2168-0002`) | Cuối `qemu.log` có đoạn `*** CRASH`; gửi kèm file mới nhất trong `/atmosphere/crash_reports/` khi báo lỗi |
 | Lỗi khác | Xem log tại `/switch/qemu-kitkat-arm/qemu.log` |
+
+Đọc crash dump: địa chỉ `elf+0x...` là offset trong file ELF đi kèm đúng bản `.nro` đó
+(`qemu-kitkat-arm.elf.xz` ở Releases, artifact `qemu-kitkat-arm-elf` của lần build CI, hoặc `out/qemu-kitkat-arm.elf`
+khi tự build):
+
+```sh
+xz -dk qemu-kitkat-arm.elf.xz
+aarch64-none-elf-addr2line -fipC -e qemu-kitkat-arm.elf 0x123456 0x234567
+```
 
 Hiện chưa có **âm thanh**.
 
@@ -120,14 +130,15 @@ arm/build-kernel.sh       # build/arm/zImage, vexpress-v2p-ca15-tc1.dtb (make-di
 cross-compile thư viện vào `build/sysroot`; rồi build QEMU và đóng gói `.nro`.
 
 **CI/CD** (`.github/workflows/build.yml`): mỗi lần push hoặc mở PR, GitHub Actions build `.nro` (container
-`devkitpro/devkita64`) và kernel (Docker), kết quả nằm ở mục Artifacts của lần chạy. Đẩy một tag `v*`
-(ví dụ `git tag v0.2.0 && git push origin v0.2.0`) sẽ tạo GitHub Release kèm `qemu-kitkat-arm.nro`, `zImage`, `vexpress.dtb`.
+`devkitpro/devkita64`), file ELF tương ứng (để tra địa chỉ crash) và kernel (Docker), kết quả nằm ở mục Artifacts
+của lần chạy. Đẩy một tag `v*` (ví dụ `git tag v0.2.0 && git push origin v0.2.0`) sẽ tạo GitHub Release kèm
+`qemu-kitkat-arm.nro`, `qemu-kitkat-arm.elf.xz`, `zImage`, `vexpress.dtb`.
 
 ## Cấu trúc
 
 | Đường dẫn | Nội dung |
 | --- | --- |
-| `nxcompat/` | lớp tương thích POSIX cho Horizon: `mmap` ẩn danh, `pipe` + `poll/select/fcntl` (ld `--wrap`), `pread/pwrite`, termios, `sigsetjmp`, JIT CodeMemory, chia luồng ra 3 nhân, frontend Switch (CPU boost, args.txt, log, bàn phím ảo) |
+| `nxcompat/` | lớp tương thích POSIX cho Horizon: `mmap` ẩn danh, `pipe` + `poll/select/fcntl` (ld `--wrap`), `pread/pwrite`, termios, `sigsetjmp`, JIT CodeMemory, chia luồng ra 3 nhân, frontend Switch (CPU boost, args.txt, log, bộ ghi crash, bàn phím ảo) |
 | `patches/qemu-11.1.2-horizon.patch` | host OS `horizon`, coroutine backend AArch64, TCG split-wx qua JIT libnx, `os-horizon.c`, điều khiển Joy-Con và chế độ touchpad (`ui/sdl2-switch.c`) |
 | `patches/glib-2.82.5-horizon.patch` | chỉ build glib/gthread/gmodule, vá vài API thiếu trong newlib |
 | `patches/libslirp-4.9.1-horizon.patch` | lấy DNS của Switch qua `nifm` (Horizon không có `/etc/resolv.conf`) |

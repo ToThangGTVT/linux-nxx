@@ -2,6 +2,8 @@
 # Package the Switch QEMU builds as .nro apps:
 #   out/qemu-kitkat.nro      qemu-system-i386 (romfs holds the x86 firmware)
 #   out/qemu-kitkat-arm.nro  qemu-system-arm  (no firmware needed)
+# Each .nro gets its unstripped ELF next to it (out/<name>.elf) for resolving
+# crash addresses: aarch64-none-elf-addr2line -fipC -e out/<name>.elf <offset>
 #   scripts/package-nro.sh [i386|arm|all]   (default: all)
 set -e
 . "$(dirname "$0")/env.sh"
@@ -17,9 +19,10 @@ package() {
   local args=(--nacp="$BUILD/$name.nacp")
   [ -n "$romfs" ] && args+=(--romfsdir="$romfs")
   [ -f "$NXX_ROOT/assets/icon.jpg" ] && args+=(--icon="$NXX_ROOT/assets/icon.jpg")
-  nacptool --create "$title" "linux-nxx" "0.2.0" "$BUILD/$name.nacp"
+  nacptool --create "$title" "linux-nxx" "0.2.1" "$BUILD/$name.nacp"
   elf2nro "$elf" "$OUT/$name.nro" "${args[@]}" >/dev/null
-  ls -la "$OUT/$name.nro"
+  cp "$elf" "$OUT/$name.elf"
+  ls -la "$OUT/$name.nro" "$OUT/$name.elf"
 }
 
 if [ "$WHICH" = all ] || [ "$WHICH" = i386 ]; then

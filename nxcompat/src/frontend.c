@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 #include <arpa/inet.h>
 #include <switch.h>
+#include "nxcompat/crash.h"
 #include "nxcompat/frontend.h"
 
 #define NXFE_MAX_ARGS 128
@@ -106,21 +107,29 @@ static void nxfe_fatal_screen(const char *msg)
     consoleExit(NULL);
 }
 
-static void nxfe_open_log(const char *dir)
+/* Send stdout/stderr to nxlink or <dir>/qemu.log; returns a descriptor for the crash logger */
+static int nxfe_open_log(const char *dir)
 {
     char path[256];
+    FILE *f;
 
     snprintf(path, sizeof(path), "%s/qemu.log", dir);
     if (__nxlink_host.s_addr != 0 && g_sockets) {
-        nxlinkStdio();
-        return;
+        return nxlinkStdio();
     }
-    if (freopen(path, "w", stdout)) {
+    /* Truncate once, then append from both streams so neither overwrites the other */
+    f = fopen(path, "w");
+    if (f) {
+        fclose(f);
+    }
+    if (freopen(path, "a", stdout)) {
         setvbuf(stdout, NULL, _IOLBF, 0);
     }
-    if (freopen(path, "a", stderr)) {
-        setvbuf(stderr, NULL, _IONBF, 0);
+    if (!freopen(path, "a", stderr)) {
+        return -1;
     }
+    setvbuf(stderr, NULL, _IONBF, 0);
+    return fileno(stderr);
 }
 
 /* Split @p into whitespace separated tokens; "double quotes" group words */
@@ -204,7 +213,7 @@ int nxfe_init(int *argc, char ***argv, const char *target)
 
     /* BSD sockets back QEMU's user-mode networking (libslirp) and nxlink */
     g_sockets = R_SUCCEEDED(socketInitializeDefault());
-    nxfe_open_log(prof->dir);
+    nxc_crash_init(nxfe_open_log(prof->dir));
     if (!g_sockets) {
         printf("socketInitializeDefault failed; guest networking will not work\n");
     }
