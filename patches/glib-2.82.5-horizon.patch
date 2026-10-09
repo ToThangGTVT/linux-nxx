@@ -1,0 +1,125 @@
+diff --git a/glib/ghostutils.c b/glib/ghostutils.c
+index c4b92c3..75a80da 100644
+--- a/glib/ghostutils.c
++++ b/glib/ghostutils.c
+@@ -415,8 +415,10 @@ get_hostname_max_length_bytes (void)
+ 
+ #ifdef HOST_NAME_MAX
+   return HOST_NAME_MAX;
+-#else
++#elif defined(_POSIX_HOST_NAME_MAX)
+   return _POSIX_HOST_NAME_MAX;
++#else
++  return 255;
+ #endif /* HOST_NAME_MAX */
+ #else
+   /* Fallback to some reasonable value
+diff --git a/glib/giounix.c b/glib/giounix.c
+index 84e8135..bc97aa2 100644
+--- a/glib/giounix.c
++++ b/glib/giounix.c
+@@ -190,6 +190,9 @@ g_io_unix_read (GIOChannel *channel,
+   GIOUnixChannel *unix_channel = (GIOUnixChannel *)channel;
+   gssize result;
+ 
++#ifndef SSIZE_MAX
++#define SSIZE_MAX G_MAXSSIZE
++#endif
+   if (count > SSIZE_MAX) /* At least according to the Debian manpage for read */
+     count = SSIZE_MAX;
+ 
+diff --git a/glib/gtestutils.c b/glib/gtestutils.c
+index a291030..1b7832e 100644
+--- a/glib/gtestutils.c
++++ b/glib/gtestutils.c
+@@ -1133,7 +1133,7 @@ g_test_log (GTestLogType lbit,
+ void
+ g_test_disable_crash_reporting (void)
+ {
+-#ifdef HAVE_SYS_RESOURCE_H
++#if defined(HAVE_SYS_RESOURCE_H) && defined(RLIMIT_CORE)
+   struct rlimit limit = { 0, 0 };
+ 
+   (void) setrlimit (RLIMIT_CORE, &limit);
+diff --git a/glib/gutils.c b/glib/gutils.c
+index 057e2bc..b304be3 100644
+--- a/glib/gutils.c
++++ b/glib/gutils.c
+@@ -44,7 +44,9 @@
+ #include <sys/stat.h>
+ #ifdef G_OS_UNIX
+ #include <pwd.h>
++#ifndef __SWITCH__
+ #include <sys/utsname.h>
++#endif
+ #include <unistd.h>
+ #endif
+ #include <sys/types.h>
+@@ -1083,8 +1085,10 @@ g_get_host_name (void)
+         else
+ #ifdef HOST_NAME_MAX
+           size = HOST_NAME_MAX + 1;
+-#else
++#elif defined(_POSIX_HOST_NAME_MAX)
+           size = _POSIX_HOST_NAME_MAX + 1;
++#else
++          size = 256;
+ #endif /* HOST_NAME_MAX */
+       }
+ #else
+@@ -1570,6 +1574,10 @@ get_os_info_from_os_release (const gchar *key_name,
+ static gchar *
+ get_os_info_from_uname (const gchar *key_name)
+ {
++#ifdef __SWITCH__
++  return NULL;
++#else
++
+   struct utsname info;
+ 
+   if (uname (&info) == -1)
+@@ -1650,6 +1658,7 @@ get_os_info_from_uname (const gchar *key_name)
+     }
+   else
+     return NULL;
++#endif
+ }
+ #endif  /* defined (G_OS_UNIX) && !defined (__APPLE__) */
+ 
+diff --git a/glib/meson.build b/glib/meson.build
+index 9f1515b..aa4bd88 100644
+--- a/glib/meson.build
++++ b/glib/meson.build
+@@ -491,7 +491,7 @@ if host_system == 'windows'
+       include_directories : configinc,
+       dependencies : [libglib_dep])
+   endif
+-else
++elif host_system != 'horizon'
+   gtester = executable('gtester', 'gtester.c',
+     install : true,
+     install_tag : 'bin-devel',
+diff --git a/meson.build b/meson.build
+index a998044..08195b4 100644
+--- a/meson.build
++++ b/meson.build
+@@ -2618,6 +2618,11 @@ gnome = import('gnome')
+ 
+ subdir('tools')
+ subdir('glib')
++if host_system == 'horizon'
++  # Nintendo Switch: only libglib/libgthread/libgmodule are needed by QEMU
++  subdir('gthread')
++  subdir('gmodule')
++else
+ subdir('gobject')
+ subdir('gthread')
+ subdir('gmodule')
+@@ -2625,6 +2630,7 @@ subdir('gio')
+ subdir('girepository')
+ subdir('fuzzing')
+ subdir('tests')
++endif
+ 
+ # xgettext is optional (on Windows for instance)
+ if find_program('xgettext', required : get_option('nls')).found()

@@ -1,0 +1,5 @@
+#!/bin/bash
+# pkg-config for Switch: our sysroot first, then devkitPro portlibs; always static
+. "$(dirname "$0")/env.sh"
+[[ "$1" == '--version' ]] && exec pkg-config --version
+exec pkg-config --static "$@"

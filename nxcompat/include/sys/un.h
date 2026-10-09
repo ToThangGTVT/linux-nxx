@@ -1,0 +1,12 @@
+/* nxcompat: <sys/un.h> for Horizon (AF_UNIX is not actually supported) */
+#ifndef NXCOMPAT_SYS_UN_H
+#define NXCOMPAT_SYS_UN_H
+
+#include <sys/socket.h>
+
+struct sockaddr_un {
+    sa_family_t sun_family;
+    char sun_path[108];
+};
+
+#endif

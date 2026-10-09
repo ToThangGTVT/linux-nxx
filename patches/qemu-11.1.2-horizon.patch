@@ -1,0 +1,830 @@
+diff --git a/accel/tcg/tcg-all.c b/accel/tcg/tcg-all.c
+index 7186c10cf..4c17b08b5 100644
+--- a/accel/tcg/tcg-all.c
++++ b/accel/tcg/tcg-all.c
+@@ -75,7 +75,9 @@ static void tcg_accel_instance_init(Object *obj)
+     TCGState *s = TCG_STATE(obj);
+ 
+     /* If debugging enabled, default "auto on", otherwise off. */
+-#if defined(CONFIG_DEBUG_TCG) && !defined(CONFIG_USER_ONLY)
++#if defined(__SWITCH__)
++    s->splitwx_enabled = 1;
++#elif defined(CONFIG_DEBUG_TCG) && !defined(CONFIG_USER_ONLY)
+     s->splitwx_enabled = -1;
+ #else
+     s->splitwx_enabled = 0;
+diff --git a/backends/meson.build b/backends/meson.build
+index 8792c58c3..f601bc872 100644
+--- a/backends/meson.build
++++ b/backends/meson.build
+@@ -12,7 +12,7 @@ system_ss.add([files(
+ 
+ if host_os != 'windows'
+   system_ss.add(files('rng-random.c'))
+-  if host_os != 'emscripten'
++  if host_os not in ['emscripten', 'horizon']
+     system_ss.add(files('hostmem-file.c'))
+     system_ss.add([files('hostmem-shm.c'), rt])
+   endif
+diff --git a/chardev/meson.build b/chardev/meson.build
+index 56ee39ac0..c0dc9d158 100644
+--- a/chardev/meson.build
++++ b/chardev/meson.build
+@@ -23,8 +23,10 @@ else
+   chardev_ss.add(files(
+       'char-fd.c',
+       'char-parallel.c',
+-      'char-pty.c',
+     ), util)
++  if host_os != 'horizon'
++    chardev_ss.add(files('char-pty.c'))
++  endif
+ endif
+ 
+ chardev_ss = chardev_ss.apply({})
+diff --git a/configure b/configure
+index 6ddfe4b53..162f69561 100755
+--- a/configure
++++ b/configure
+@@ -371,6 +371,9 @@ elif check_define __APPLE__; then
+ elif check_define EMSCRIPTEN ; then
+   host_os=emscripten
+   cross_compile="yes"
++elif check_define __SWITCH__ ; then
++  host_os=horizon
++  cross_compile="yes"
+ elif check_define __GNU__; then
+   host_os=gnu
+ else
+diff --git a/include/qemu/osdep.h b/include/qemu/osdep.h
+index 1ec5b4223..3b01b79b1 100644
+--- a/include/qemu/osdep.h
++++ b/include/qemu/osdep.h
+@@ -177,11 +177,11 @@ QEMU_EXTERN_C int daemon(int, int);
+ #include "system/os-win32.h"
+ #endif
+ 
+-#if defined(CONFIG_POSIX) && !defined(EMSCRIPTEN)
++#if defined(CONFIG_POSIX) && !defined(EMSCRIPTEN) && !defined(__SWITCH__)
+ #include "system/os-posix.h"
+ #endif
+ 
+-#if defined(EMSCRIPTEN)
++#if defined(EMSCRIPTEN) || defined(__SWITCH__)
+ #include "system/os-wasm.h"
+ #endif
+ 
+diff --git a/include/ui/sdl2.h b/include/ui/sdl2.h
+index 9daf5ecff..377cabd38 100644
+--- a/include/ui/sdl2.h
++++ b/include/ui/sdl2.h
+@@ -55,6 +55,11 @@ struct sdl2_console {
+ #endif
+ };
+ 
++#ifdef __SWITCH__
++bool sdl2_switch_handle_event(struct sdl2_console *scon, SDL_Event *ev);
++bool sdl2_switch_poll(struct sdl2_console *scon);
++#endif
++
+ void sdl2_window_create(struct sdl2_console *scon);
+ void sdl2_window_destroy(struct sdl2_console *scon);
+ void sdl2_window_resize(struct sdl2_console *scon);
+diff --git a/meson.build b/meson.build
+index 40e3f4ec4..dc9934da8 100644
+--- a/meson.build
++++ b/meson.build
+@@ -53,7 +53,7 @@ genh = []
+ qapi_trace_events = []
+ 
+ bsd_oses = ['gnu/kfreebsd', 'freebsd', 'netbsd', 'openbsd', 'dragonfly', 'darwin']
+-supported_oses = ['windows', 'freebsd', 'netbsd', 'openbsd', 'darwin', 'sunos', 'linux', 'emscripten']
++supported_oses = ['windows', 'freebsd', 'netbsd', 'openbsd', 'darwin', 'sunos', 'linux', 'emscripten', 'horizon']
+ supported_cpus = ['ppc64', 's390x', 'riscv64', 'x86_64',
+   'aarch64', 'loongarch64', 'sparc64', 'wasm64']
+ 
+@@ -502,6 +502,8 @@ if host_os == 'windows'
+   supported_backends += ['windows']
+ elif host_os == 'emscripten'
+   supported_backends += ['wasm']
++elif host_os == 'horizon'
++  supported_backends += ['horizon']
+ else
+   if host_os != 'darwin' and cc.links(ucontext_probe)
+     supported_backends += ['ucontext']
+@@ -1369,7 +1371,7 @@ endif
+ spice_headers = spice.partial_dependency(compile_args: true, includes: true)
+ 
+ rt = not_found
+-if host_os != 'windows'
++if host_os not in ['windows', 'horizon']
+   have_shm_open = cc.has_function('shm_open')
+   if not have_shm_open
+     rt = cc.find_library('rt', required: true)
+@@ -3836,6 +3838,8 @@ if have_block
+     system_ss.add(files('os-win32.c'))
+   elif host_os == 'emscripten'
+     blockdev_ss.add(files('os-wasm.c'))
++  elif host_os == 'horizon'
++    blockdev_ss.add(files('os-horizon.c'))
+   else
+     blockdev_ss.add(files('os-posix.c'))
+   endif
+diff --git a/meson_options.txt b/meson_options.txt
+index a07cb47d3..02ff39bab 100644
+--- a/meson_options.txt
++++ b/meson_options.txt
+@@ -34,7 +34,7 @@ option('fuzzing_engine', type : 'string', value : '',
+ option('trace_file', type: 'string', value: 'trace',
+        description: 'Trace file prefix for simple backend')
+ option('coroutine_backend', type: 'combo',
+-       choices: ['ucontext', 'sigaltstack', 'windows', 'wasm', 'auto'],
++       choices: ['ucontext', 'sigaltstack', 'windows', 'wasm', 'horizon', 'auto'],
+        value: 'auto', description: 'coroutine backend to use')
+ option('gdb', type: 'string', value: '',
+        description: 'Path to GDB')
+diff --git a/os-horizon.c b/os-horizon.c
+new file mode 100644
+index 000000000..b97b3dc8f
+--- /dev/null
++++ b/os-horizon.c
+@@ -0,0 +1,45 @@
++/*
++ * OS specific functions for Nintendo Switch (Horizon OS / libnx)
++ *
++ * Horizon has no POSIX signals, resource limits or process names, so most
++ * of these are no-ops. Shutdown requests from the HOME menu are handled by
++ * the Switch frontend instead of SIGTERM.
++ *
++ * SPDX-License-Identifier: MIT
++ */
++
++#include "qemu/osdep.h"
++#include "qemu/error-report.h"
++
++void os_setup_post(void)
++{
++}
++
++void os_set_line_buffering(void)
++{
++    setvbuf(stdout, NULL, _IOLBF, 0);
++}
++
++void os_setup_early_signal_handling(void)
++{
++}
++
++void os_set_proc_name(const char *s)
++{
++    error_report("Change of process name not supported by your OS");
++    exit(1);
++}
++
++void os_setup_signal_handling(void)
++{
++}
++
++void os_setup_limits(void)
++{
++}
++
++int os_mlock(bool on_fault)
++{
++    (void)on_fault;
++    return -ENOSYS;
++}
+diff --git a/system/main.c b/system/main.c
+index b8f7157cc..b4f26ed42 100644
+--- a/system/main.c
++++ b/system/main.c
+@@ -41,6 +41,10 @@
+ #include <CoreFoundation/CoreFoundation.h>
+ #endif
+ 
++#ifdef __SWITCH__
++#include <nxcompat/frontend.h>
++#endif
++
+ static void *qemu_default_main(void *opaque)
+ {
+     int status;
+@@ -68,6 +72,11 @@ int (*qemu_main)(void) = os_darwin_cfrunloop_main;
+ 
+ int main(int argc, char **argv)
+ {
++#ifdef __SWITCH__
++    if (nxfe_init(&argc, &argv) < 0) {
++        return 1;
++    }
++#endif
+     qemu_init(argc, argv);
+ 
+     /*
+diff --git a/system/memory.c b/system/memory.c
+index 5fc36708e..fbe55ca87 100644
+--- a/system/memory.c
++++ b/system/memory.c
+@@ -1623,7 +1623,7 @@ bool memory_region_init_resizeable_ram(MemoryRegion *mr,
+     return memory_region_set_ram_block(mr, rb);
+ }
+ 
+-#if defined(CONFIG_POSIX) && !defined(EMSCRIPTEN)
++#if defined(CONFIG_POSIX) && !defined(EMSCRIPTEN) && !defined(__SWITCH__)
+ bool memory_region_init_ram_from_file(MemoryRegion *mr, Object *owner,
+                                       const char *name, uint64_t size,
+                                       uint64_t align, uint32_t ram_flags,
+diff --git a/system/physmem.c b/system/physmem.c
+index c21ea9291..24008eb05 100644
+--- a/system/physmem.c
++++ b/system/physmem.c
+@@ -1539,7 +1539,7 @@ long qemu_maxrampagesize(void)
+     return pagesize;
+ }
+ 
+-#if defined(CONFIG_POSIX) && !defined(EMSCRIPTEN)
++#if defined(CONFIG_POSIX) && !defined(EMSCRIPTEN) && !defined(__SWITCH__)
+ static int64_t get_file_size(int fd)
+ {
+     int64_t size;
+@@ -2294,7 +2294,7 @@ out_free:
+     }
+ }
+ 
+-#if defined(CONFIG_POSIX) && !defined(EMSCRIPTEN)
++#if defined(CONFIG_POSIX) && !defined(EMSCRIPTEN) && !defined(__SWITCH__)
+ RAMBlock *qemu_ram_alloc_from_fd(ram_addr_t size, ram_addr_t max_size,
+                                  qemu_ram_resize_cb resized, MemoryRegion *mr,
+                                  uint32_t ram_flags, int fd, off_t offset,
+@@ -2475,7 +2475,7 @@ RAMBlock *qemu_ram_alloc_internal(ram_addr_t size, ram_addr_t max_size,
+     assert(max_size >= size);
+ 
+     /* ignore RAM_SHARED for Windows and emscripten*/
+-#if defined(CONFIG_POSIX) && !defined(EMSCRIPTEN)
++#if defined(CONFIG_POSIX) && !defined(EMSCRIPTEN) && !defined(__SWITCH__)
+     if (!host) {
+         if (!share_flags && current_machine->aux_ram_share) {
+             ram_flags |= RAM_SHARED;
+@@ -2572,7 +2572,7 @@ static void reclaim_ramblock(RAMBlock *block)
+         ;
+     } else if (xen_map_cache_enabled()) {
+         xen_invalidate_map_cache_entry(block->host);
+-#if !defined(_WIN32) && !defined(EMSCRIPTEN)
++#if !defined(_WIN32) && !defined(EMSCRIPTEN) && !defined(__SWITCH__)
+     } else if (block->fd >= 0) {
+         qemu_ram_munmap(block->fd, block->host, block->max_length);
+         close(block->fd);
+diff --git a/system/vl.c b/system/vl.c
+index 061cbdf86..847de31a0 100644
+--- a/system/vl.c
++++ b/system/vl.c
+@@ -773,7 +773,7 @@ static QemuOptsList qemu_smp_opts = {
+     },
+ };
+ 
+-#if defined(CONFIG_POSIX) && !defined(EMSCRIPTEN)
++#if defined(CONFIG_POSIX) && !defined(EMSCRIPTEN) && !defined(__SWITCH__)
+ static QemuOptsList qemu_run_with_opts = {
+     .name = "run-with",
+     .head = QTAILQ_HEAD_INITIALIZER(qemu_run_with_opts.head),
+@@ -3688,7 +3688,7 @@ void qemu_init(int argc, char **argv)
+             case QEMU_OPTION_nouserconfig:
+                 /* Nothing to be parsed here. Especially, do not error out below. */
+                 break;
+-#if defined(CONFIG_POSIX) && !defined(EMSCRIPTEN)
++#if defined(CONFIG_POSIX) && !defined(EMSCRIPTEN) && !defined(__SWITCH__)
+             case QEMU_OPTION_daemonize:
+                 os_set_daemonize(true);
+                 break;
+diff --git a/tcg/region.c b/tcg/region.c
+index 1145f3508..4534ec577 100644
+--- a/tcg/region.c
++++ b/tcg/region.c
+@@ -484,7 +484,13 @@ static size_t tcg_n_regions(size_t tb_size, unsigned max_threads)
+  */
+ #define MIN_CODE_GEN_BUFFER_SIZE     (1 * MiB)
+ 
+-#ifdef CONFIG_USER_ONLY
++#if defined(__SWITCH__)
++/*
++ * Nintendo Switch: JIT memory comes out of the ~3.2 GiB application heap
++ * that also holds guest RAM, so keep the translation cache modest.
++ */
++#define DEFAULT_CODE_GEN_BUFFER_SIZE_1 (128 * MiB)
++#elif defined(CONFIG_USER_ONLY)
+ /*
+  * As user-mode emulation typically means running multiple instances
+  * of the translator don't go too nuts with our default code gen
+@@ -617,6 +623,35 @@ static int alloc_code_gen_buffer_splitwx_memfd(size_t size, Error **errp)
+ }
+ #endif /* CONFIG_POSIX */
+ 
++#ifdef __SWITCH__
++#include <nxcompat/jit.h>
++
++/*
++ * Horizon only allows executable memory through CodeMemory objects, which
++ * libnx maps twice: RW for the owner and RX for execution. That is exactly
++ * TCG's split-wx model.
++ */
++static int alloc_code_gen_buffer_splitwx_horizon(size_t size, Error **errp)
++{
++    void *buf_rw, *buf_rx;
++    unsigned int rc;
++
++    rc = nxc_jit_alloc(size, &buf_rw, &buf_rx);
++    if (rc) {
++        error_setg(errp, "failed to create %zu bytes of JIT memory "
++                   "(result 0x%x); is the loader granting CodeMemory?",
++                   size, rc);
++        return -1;
++    }
++
++    region.start_aligned = buf_rw;
++    region.total_size = size;
++    tcg_splitwx_diff = buf_rx - buf_rw;
++
++    return PROT_READ | PROT_WRITE;
++}
++#endif /* __SWITCH__ */
++
+ #ifdef CONFIG_DARWIN
+ #include <mach/mach.h>
+ 
+@@ -680,6 +715,9 @@ static int alloc_code_gen_buffer_splitwx_vmremap(size_t size, Error **errp)
+ static int alloc_code_gen_buffer_splitwx(size_t size, Error **errp)
+ {
+ #ifndef CONFIG_TCG_INTERPRETER
++# ifdef __SWITCH__
++    return alloc_code_gen_buffer_splitwx_horizon(size, errp);
++# endif
+ # ifdef CONFIG_DARWIN
+     return alloc_code_gen_buffer_splitwx_vmremap(size, errp);
+ # endif
+@@ -696,6 +734,10 @@ static int alloc_code_gen_buffer(size_t size, int splitwx, Error **errp)
+     ERRP_GUARD();
+     int prot, flags;
+ 
++#ifdef __SWITCH__
++    /* There is no RWX memory on Horizon; split-wx is the only option */
++    splitwx = 1;
++#endif
+     if (splitwx) {
+         prot = alloc_code_gen_buffer_splitwx(size, errp);
+         if (prot >= 0) {
+diff --git a/ui/meson.build b/ui/meson.build
+index d345f6c70..43c89b969 100644
+--- a/ui/meson.build
++++ b/ui/meson.build
+@@ -168,6 +168,9 @@ if sdl.found()
+     'sdl2-input.c',
+     'sdl2.c',
+   ))
++  if host_os == 'horizon'
++    sdl_ss.add(files('sdl2-switch.c'))
++  endif
+   sdl_ss.add(when: opengl, if_true: files('sdl2-gl.c'))
+   sdl_ss.add(when: x11, if_true: files('x_keymap.c'))
+   ui_modules += {'sdl' : sdl_ss}
+diff --git a/ui/sdl2-switch.c b/ui/sdl2-switch.c
+new file mode 100644
+index 000000000..79d0d516c
+--- /dev/null
++++ b/ui/sdl2-switch.c
+@@ -0,0 +1,213 @@
++/*
++ * Nintendo Switch controls for the SDL2 display
++ *
++ * The Switch has no keyboard or mouse, so Joy-Con input is translated into
++ * keys an Android guest understands, the left stick drives a pointer and the
++ * + button opens the system software keyboard to type text into the guest.
++ * The touch screen already arrives as SDL mouse events (usb-tablet).
++ *
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ */
++
++#include "qemu/osdep.h"
++#include "ui/console.h"
++#include "ui/input.h"
++#include "ui/kbd-state.h"
++#include "ui/sdl2.h"
++#include <nxcompat/frontend.h>
++
++#define STICK_DEADZONE 8000
++/* Pointer speed in guest pixels per poll at full stick deflection */
++#define STICK_MAX_SPEED 14
++
++static SDL_GameController *pad;
++static int ptr_x = -1, ptr_y = -1;
++
++static const QKeyCode button_keys[SDL_CONTROLLER_BUTTON_MAX] = {
++    [SDL_CONTROLLER_BUTTON_A]             = Q_KEY_CODE_RET,
++    [SDL_CONTROLLER_BUTTON_B]             = Q_KEY_CODE_AC_BACK,
++    [SDL_CONTROLLER_BUTTON_X]             = Q_KEY_CODE_AC_HOME,
++    [SDL_CONTROLLER_BUTTON_Y]             = Q_KEY_CODE_MENU,
++    [SDL_CONTROLLER_BUTTON_BACK]          = Q_KEY_CODE_ESC,      /* - */
++    [SDL_CONTROLLER_BUTTON_LEFTSHOULDER]  = Q_KEY_CODE_PGUP,     /* L */
++    [SDL_CONTROLLER_BUTTON_RIGHTSHOULDER] = Q_KEY_CODE_PGDN,     /* R */
++    [SDL_CONTROLLER_BUTTON_DPAD_UP]       = Q_KEY_CODE_UP,
++    [SDL_CONTROLLER_BUTTON_DPAD_DOWN]     = Q_KEY_CODE_DOWN,
++    [SDL_CONTROLLER_BUTTON_DPAD_LEFT]     = Q_KEY_CODE_LEFT,
++    [SDL_CONTROLLER_BUTTON_DPAD_RIGHT]    = Q_KEY_CODE_RIGHT,
++    [SDL_CONTROLLER_BUTTON_LEFTSTICK]     = Q_KEY_CODE_TAB,
++    [SDL_CONTROLLER_BUTTON_RIGHTSTICK]    = Q_KEY_CODE_SPC,
++};
++
++/* US layout: unshifted and shifted characters for each qcode */
++static const struct {
++    QKeyCode qcode;
++    char plain;
++    char shifted;
++} ascii_keys[] = {
++    { Q_KEY_CODE_1, '1', '!' }, { Q_KEY_CODE_2, '2', '@' },
++    { Q_KEY_CODE_3, '3', '#' }, { Q_KEY_CODE_4, '4', '$' },
++    { Q_KEY_CODE_5, '5', '%' }, { Q_KEY_CODE_6, '6', '^' },
++    { Q_KEY_CODE_7, '7', '&' }, { Q_KEY_CODE_8, '8', '*' },
++    { Q_KEY_CODE_9, '9', '(' }, { Q_KEY_CODE_0, '0', ')' },
++    { Q_KEY_CODE_MINUS, '-', '_' }, { Q_KEY_CODE_EQUAL, '=', '+' },
++    { Q_KEY_CODE_BRACKET_LEFT, '[', '{' },
++    { Q_KEY_CODE_BRACKET_RIGHT, ']', '}' },
++    { Q_KEY_CODE_BACKSLASH, '\\', '|' },
++    { Q_KEY_CODE_SEMICOLON, ';', ':' }, { Q_KEY_CODE_APOSTROPHE, '\'', '"' },
++    { Q_KEY_CODE_GRAVE_ACCENT, '`', '~' }, { Q_KEY_CODE_COMMA, ',', '<' },
++    { Q_KEY_CODE_DOT, '.', '>' }, { Q_KEY_CODE_SLASH, '/', '?' },
++    { Q_KEY_CODE_SPC, ' ', ' ' }, { Q_KEY_CODE_RET, '\n', '\n' },
++    { Q_KEY_CODE_A, 'a', 'A' }, { Q_KEY_CODE_B, 'b', 'B' },
++    { Q_KEY_CODE_C, 'c', 'C' }, { Q_KEY_CODE_D, 'd', 'D' },
++    { Q_KEY_CODE_E, 'e', 'E' }, { Q_KEY_CODE_F, 'f', 'F' },
++    { Q_KEY_CODE_G, 'g', 'G' }, { Q_KEY_CODE_H, 'h', 'H' },
++    { Q_KEY_CODE_I, 'i', 'I' }, { Q_KEY_CODE_J, 'j', 'J' },
++    { Q_KEY_CODE_K, 'k', 'K' }, { Q_KEY_CODE_L, 'l', 'L' },
++    { Q_KEY_CODE_M, 'm', 'M' }, { Q_KEY_CODE_N, 'n', 'N' },
++    { Q_KEY_CODE_O, 'o', 'O' }, { Q_KEY_CODE_P, 'p', 'P' },
++    { Q_KEY_CODE_Q, 'q', 'Q' }, { Q_KEY_CODE_R, 'r', 'R' },
++    { Q_KEY_CODE_S, 's', 'S' }, { Q_KEY_CODE_T, 't', 'T' },
++    { Q_KEY_CODE_U, 'u', 'U' }, { Q_KEY_CODE_V, 'v', 'V' },
++    { Q_KEY_CODE_W, 'w', 'W' }, { Q_KEY_CODE_X, 'x', 'X' },
++    { Q_KEY_CODE_Y, 'y', 'Y' }, { Q_KEY_CODE_Z, 'z', 'Z' },
++};
++
++static void type_text(struct sdl2_console *scon, const char *text)
++{
++    for (const char *c = text; *c; c++) {
++        for (size_t i = 0; i < ARRAY_SIZE(ascii_keys); i++) {
++            bool shift;
++
++            if (ascii_keys[i].plain == *c) {
++                shift = false;
++            } else if (ascii_keys[i].shifted == *c) {
++                shift = true;
++            } else {
++                continue;
++            }
++            if (shift) {
++                qkbd_state_key_event(scon->kbd, Q_KEY_CODE_SHIFT, true);
++            }
++            qkbd_state_key_event(scon->kbd, ascii_keys[i].qcode, true);
++            qkbd_state_key_event(scon->kbd, ascii_keys[i].qcode, false);
++            if (shift) {
++                qkbd_state_key_event(scon->kbd, Q_KEY_CODE_SHIFT, false);
++            }
++            break;
++        }
++    }
++}
++
++static void send_pointer(struct sdl2_console *scon)
++{
++    QemuConsole *con = scon->dcl.con;
++
++    if (qemu_input_is_absolute(con)) {
++        qemu_input_queue_abs(con, INPUT_AXIS_X, ptr_x, 0,
++                             surface_width(scon->surface));
++        qemu_input_queue_abs(con, INPUT_AXIS_Y, ptr_y, 0,
++                             surface_height(scon->surface));
++    }
++    qemu_input_event_sync();
++}
++
++static void handle_trigger(struct sdl2_console *scon, SDL_Event *ev)
++{
++    static bool held[SDL_CONTROLLER_AXIS_MAX];
++    InputButton btn;
++    bool down = ev->caxis.value > 16384;
++
++    if (ev->caxis.axis == SDL_CONTROLLER_AXIS_TRIGGERRIGHT) {
++        btn = INPUT_BUTTON_LEFT;      /* ZR */
++    } else if (ev->caxis.axis == SDL_CONTROLLER_AXIS_TRIGGERLEFT) {
++        btn = INPUT_BUTTON_RIGHT;     /* ZL */
++    } else {
++        return;
++    }
++    if (held[ev->caxis.axis] == down) {
++        return;
++    }
++    held[ev->caxis.axis] = down;
++    if (ptr_x >= 0) {
++        send_pointer(scon);
++    }
++    qemu_input_queue_btn(scon->dcl.con, btn, down);
++    qemu_input_event_sync();
++}
++
++/* Returns true if the event was consumed */
++bool sdl2_switch_handle_event(struct sdl2_console *scon, SDL_Event *ev)
++{
++    switch (ev->type) {
++    case SDL_CONTROLLERDEVICEADDED:
++        if (!pad) {
++            pad = SDL_GameControllerOpen(ev->cdevice.which);
++        }
++        return true;
++    case SDL_CONTROLLERBUTTONDOWN:
++    case SDL_CONTROLLERBUTTONUP: {
++        bool down = ev->type == SDL_CONTROLLERBUTTONDOWN;
++        uint8_t b = ev->cbutton.button;
++
++        if (b == SDL_CONTROLLER_BUTTON_START) {   /* + */
++            char text[512] = "";
++
++            if (down && nxfe_text_input(text, sizeof(text)) == 0) {
++                type_text(scon, text);
++            }
++            return true;
++        }
++        if (b < SDL_CONTROLLER_BUTTON_MAX && button_keys[b]) {
++            qkbd_state_key_event(scon->kbd, button_keys[b], down);
++        }
++        return true;
++    }
++    case SDL_CONTROLLERAXISMOTION:
++        handle_trigger(scon, ev);
++        return true;
++    default:
++        return false;
++    }
++}
++
++/* Move the pointer with the left stick; returns true while it is moving */
++bool sdl2_switch_poll(struct sdl2_console *scon)
++{
++    static bool initialized;
++    int ax, ay, w, h;
++
++    if (!initialized) {
++        initialized = true;
++        SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER);
++        if (SDL_NumJoysticks() > 0 && SDL_IsGameController(0)) {
++            pad = SDL_GameControllerOpen(0);
++        }
++    }
++    if (!pad || !scon->surface) {
++        return false;
++    }
++
++    ax = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTX);
++    ay = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTY);
++    if (abs(ax) < STICK_DEADZONE && abs(ay) < STICK_DEADZONE) {
++        return false;
++    }
++
++    w = surface_width(scon->surface);
++    h = surface_height(scon->surface);
++    if (ptr_x < 0) {
++        ptr_x = w / 2;
++        ptr_y = h / 2;
++    }
++    if (abs(ax) >= STICK_DEADZONE) {
++        ptr_x += ax * STICK_MAX_SPEED / 32767;
++    }
++    if (abs(ay) >= STICK_DEADZONE) {
++        ptr_y += ay * STICK_MAX_SPEED / 32767;
++    }
++    ptr_x = MAX(0, MIN(ptr_x, w - 1));
++    ptr_y = MAX(0, MIN(ptr_y, h - 1));
++    send_pointer(scon);
++    return true;
++}
+diff --git a/ui/sdl2.c b/ui/sdl2.c
+index 1c97d23a4..ed128bcf9 100644
+--- a/ui/sdl2.c
++++ b/ui/sdl2.c
+@@ -713,10 +713,21 @@ void sdl2_poll_events(struct sdl2_console *scon)
+             handle_windowevent(ev);
+             break;
+         default:
++#ifdef __SWITCH__
++            if (sdl2_switch_handle_event(scon, ev)) {
++                idle = 0;
++            }
++#endif
+             break;
+         }
+     }
+ 
++#ifdef __SWITCH__
++    if (sdl2_switch_poll(scon)) {
++        idle = 0;
++    }
++#endif
++
+     if (idle) {
+         if (scon->idle_counter < SDL2_MAX_IDLE_COUNT) {
+             scon->idle_counter++;
+diff --git a/util/coroutine-horizon.c b/util/coroutine-horizon.c
+new file mode 100644
+index 000000000..efed0c847
+--- /dev/null
++++ b/util/coroutine-horizon.c
+@@ -0,0 +1,118 @@
++/*
++ * Coroutine backend for Nintendo Switch (Horizon OS / libnx)
++ *
++ * Horizon's newlib has neither ucontext nor sigaltstack, so the initial
++ * switch onto a fresh coroutine stack is done with a few lines of AArch64
++ * assembly; every later switch uses plain setjmp()/longjmp(), exactly like
++ * coroutine-ucontext.c does after bootstrap.
++ *
++ * SPDX-License-Identifier: LGPL-2.1-or-later
++ */
++
++#include "qemu/osdep.h"
++#include <setjmp.h>
++#include "qemu/coroutine_int.h"
++#include "qemu/coroutine-tls.h"
++
++typedef struct {
++    Coroutine base;
++    void *stack;
++    size_t stack_size;
++    jmp_buf env;
++} CoroutineHorizon;
++
++QEMU_DEFINE_STATIC_CO_TLS(Coroutine *, current);
++QEMU_DEFINE_STATIC_CO_TLS(CoroutineHorizon, leader);
++
++static void G_NORETURN coroutine_trampoline(CoroutineHorizon *self)
++{
++    Coroutine *co = &self->base;
++
++    /* Initialize longjmp environment and switch back to the creator */
++    if (!setjmp(self->env)) {
++        longjmp(*(jmp_buf *)co->entry_arg, 1);
++    }
++
++    while (true) {
++        co->entry(co->entry_arg);
++        qemu_coroutine_switch(co, co->caller, COROUTINE_TERMINATE);
++    }
++}
++
++/* Switch sp to @stack_top and call coroutine_trampoline(@self); never returns */
++static void G_NORETURN coroutine_bootstrap(CoroutineHorizon *self,
++                                           void *stack_top)
++{
++    asm volatile(
++        "mov sp, %1\n\t"
++        "mov x0, %0\n\t"
++        "mov x29, xzr\n\t"
++        "mov x30, xzr\n\t"
++        "br  %2\n\t"
++        :
++        : "r"(self), "r"(stack_top), "r"(coroutine_trampoline)
++        : "x0", "memory");
++    __builtin_unreachable();
++}
++
++Coroutine *qemu_coroutine_new(void)
++{
++    CoroutineHorizon *co;
++    jmp_buf old_env;
++    uintptr_t top;
++
++    co = g_malloc0(sizeof(*co));
++    co->stack_size = COROUTINE_STACK_SIZE;
++    co->stack = qemu_alloc_stack(&co->stack_size);
++    co->base.entry_arg = &old_env; /* stash away our jmp_buf */
++
++    top = ((uintptr_t)co->stack + co->stack_size) & ~(uintptr_t)15;
++    if (!setjmp(old_env)) {
++        coroutine_bootstrap(co, (void *)top);
++    }
++    return &co->base;
++}
++
++void qemu_coroutine_delete(Coroutine *co_)
++{
++    CoroutineHorizon *co = DO_UPCAST(CoroutineHorizon, base, co_);
++
++    qemu_free_stack(co->stack, co->stack_size);
++    g_free(co);
++}
++
++CoroutineAction __attribute__((noinline))
++qemu_coroutine_switch(Coroutine *from_, Coroutine *to_,
++                      CoroutineAction action)
++{
++    CoroutineHorizon *from = DO_UPCAST(CoroutineHorizon, base, from_);
++    CoroutineHorizon *to = DO_UPCAST(CoroutineHorizon, base, to_);
++    int ret;
++
++    set_current(to_);
++
++    ret = setjmp(from->env);
++    if (ret == 0) {
++        longjmp(to->env, action);
++    }
++    return ret;
++}
++
++Coroutine *qemu_coroutine_self(void)
++{
++    Coroutine *self = get_current();
++    CoroutineHorizon *leaderp = get_ptr_leader();
++
++    if (!self) {
++        self = &leaderp->base;
++        set_current(self);
++    }
++    return self;
++}
++
++bool qemu_in_coroutine(void)
++{
++    Coroutine *self = get_current();
++
++    return self && self->caller;
++}
+diff --git a/util/main-loop.c b/util/main-loop.c
+index 65e5dbcc9..3e2385d16 100644
+--- a/util/main-loop.c
++++ b/util/main-loop.c
+@@ -40,7 +40,7 @@
+ #include <sys/wait.h>
+ #endif
+ 
+-#ifndef _WIN32
++#if !defined(_WIN32) && !defined(__SWITCH__)
+ 
+ /* If we have signalfd, we mask out the signals we want to handle and then
+  * use signalfd to listen for them.  We rely on whatever the current signal
+diff --git a/util/meson.build b/util/meson.build
+index fa174c07a..adda80a14 100644
+--- a/util/meson.build
++++ b/util/meson.build
+@@ -8,7 +8,7 @@ if host_os != 'windows'
+   endif
+   util_ss.add(files('compatfd.c'))
+   util_ss.add(files('event_notifier-posix.c'))
+-  if host_os != 'emscripten'
++  if host_os not in ['emscripten', 'horizon']
+     util_ss.add(files('mmap-alloc.c'))
+   endif
+   freebsd_dep = []
+diff --git a/util/oslib-posix.c b/util/oslib-posix.c
+index dc001da66..9d39c7f5e 100644
+--- a/util/oslib-posix.c
++++ b/util/oslib-posix.c
+@@ -211,7 +211,7 @@ void *qemu_anon_ram_alloc(size_t size, uint64_t *alignment, bool shared,
+     const uint32_t qemu_map_flags = (shared ? QEMU_MAP_SHARED : 0) |
+                                     (noreserve ? QEMU_MAP_NORESERVE : 0);
+     size_t align = QEMU_VMALLOC_ALIGN;
+-#ifndef EMSCRIPTEN
++#if !defined(EMSCRIPTEN) && !defined(__SWITCH__)
+     void *ptr = qemu_ram_mmap(-1, size, align, qemu_map_flags, 0);
+ 
+     if (ptr == MAP_FAILED) {
+@@ -238,7 +238,7 @@ void *qemu_anon_ram_alloc(size_t size, uint64_t *alignment, bool shared,
+ void qemu_anon_ram_free(void *ptr, size_t size)
+ {
+     trace_qemu_anon_ram_free(ptr, size);
+-#ifndef EMSCRIPTEN
++#if !defined(EMSCRIPTEN) && !defined(__SWITCH__)
+     qemu_ram_munmap(-1, ptr, size);
+ #else
+     /*
+@@ -615,7 +615,7 @@ bool qemu_prealloc_mem(int fd, char *area, size_t sz, int max_threads,
+ {
+     static gsize initialized;
+     int ret;
+-#ifndef EMSCRIPTEN
++#if !defined(EMSCRIPTEN) && !defined(__SWITCH__)
+     size_t hpagesize = qemu_fd_getpagesize(fd);
+ #else
+     /*
+@@ -793,6 +793,7 @@ void qemu_free_stack(void *stack, size_t sz)
+  * function requires being able to call a sigaction() syscall,
+  * which is not as easy as overwriting a pointer in memory.
+  */
++#ifndef __SWITCH__
+ QEMU_DISABLE_CFI
+ void sigaction_invoke(struct sigaction *action,
+                       struct qemu_signalfd_siginfo *info)
+@@ -824,6 +825,7 @@ void sigaction_invoke(struct sigaction *action,
+     }
+     action->sa_sigaction(info->ssi_signo, &si, NULL);
+ }
++#endif
+ 
+ size_t qemu_get_host_physmem(void)
+ {

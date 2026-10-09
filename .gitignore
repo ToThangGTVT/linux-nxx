@@ -1,0 +1,8 @@
+# Large or generated: rebuilt by scripts/
+/build/
+/images/
+/out/
+/src/
+*.o
+*.a
+.DS_Store
