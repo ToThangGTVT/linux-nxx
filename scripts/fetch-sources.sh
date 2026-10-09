@@ -8,8 +8,13 @@ cd "$ROOT/src"
 fetch() {
   local url=$1 dir=$2
   [ -d "$dir" ] && { echo "have $dir"; return; }
+  local file
+  file=$(basename "$url")
   echo "fetch $url"
-  curl -fsSL "$url" | tar xf - --no-same-owner
+  # Download first: GNU tar only detects the compression of a named file, not of a pipe
+  curl -fsSL -o "$file" "$url"
+  tar xf "$file" --no-same-owner
+  rm -f "$file"
 }
 
 fetch https://download.qemu.org/qemu-11.1.2.tar.xz qemu-11.1.2

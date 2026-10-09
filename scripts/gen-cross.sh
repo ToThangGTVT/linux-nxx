@@ -1,6 +1,8 @@
 #!/bin/bash
 # Generate meson cross file with absolute paths
+set -e
 . "$(dirname "$0")/env.sh"
+mkdir -p "$NXX_ROOT/build"
 arr() { local out=""; for a in "$@"; do out+="'$a', "; done; echo "[${out%, }]"; }
 cat > "$NXX_ROOT/build/switch-cross.ini" <<INI
 [binaries]
