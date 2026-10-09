@@ -18,6 +18,7 @@ exec qemu-system-arm -M vexpress-a15 -cpu cortex-a15 -m 2048 -smp 1 \
   -drive if=none,id=cache,format=qcow2,file="$D/cache.qcow2" \
   -drive if=none,id=data,format=qcow2,file="$D/userdata.qcow2" \
   -device virtio-blk-device,drive=data -device virtio-blk-device,drive=cache -device virtio-blk-device,drive=system \
+  -nic user,model=lan9118 \
   "${DISPLAY_ARGS[@]}" \
   -chardev socket,id=ser0,path="$W/serial.sock",server=on,wait=off,logfile="$W/serial.log" -serial chardev:ser0 \
   -monitor unix:"$W/mon.sock",server,nowait

@@ -1,6 +1,7 @@
 #!/bin/bash
 # Repack the SDK ramdisk with our changes into out/sdcard/switch/qemu-kitkat-arm/ramdisk.img
-#   DEBUG_SHELL=1 adds a static busybox shell on the console (/sbin/busybox sh)
+#   DEBUG_BUSYBOX=1 adds a static busybox at /sbin/busybox (nslookup, wget, ...)
+#   DEBUG_SHELL=1   also runs it as a root shell on the console
 set -e
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 SDK=$ROOT/images/arm/sysimg/armeabi-v7a
@@ -19,10 +20,34 @@ dalvik.vm.heapgrowthlimit=128m
 dalvik.vm.heapsize=512m
 PROP
 
-if [ "${DEBUG_SHELL:-0}" = 1 ]; then
+# Networking: init.goldfish.sh brings eth0 up as 10.0.2.15 (QEMU user-mode
+# networking). On the real emulator the RIL's mobile data connection then
+# hands DNS to netd; there is no RIL here, so tell netd directly.
+cat > "$R/init.ranchu.net.sh" <<'SH'
+#!/system/bin/sh
+# Wait for netd, then make eth0 the default DNS interface (QEMU slirp DNS at 10.0.2.3)
+for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    ndc resolver setifdns eth0 "" 10.0.2.3 && ndc resolver setdefaultif eth0 && exit 0
+    sleep 3
+done
+SH
+chmod 0750 "$R/init.ranchu.net.sh"
+cat >> "$R/init.ranchu.rc" <<'RC'
+
+service ranchu-net /system/bin/sh /init.ranchu.net.sh
+    class main
+    user root
+    group root
+    oneshot
+RC
+
+if [ "${DEBUG_BUSYBOX:-0}" = 1 ] || [ "${DEBUG_SHELL:-0}" = 1 ]; then
   BB=$ROOT/images/arm/tools/busybox-armv7l
+  mkdir -p "$(dirname "$BB")"
   [ -f "$BB" ] || curl -fsSL -o "$BB" https://busybox.net/downloads/binaries/1.31.0-defconfig-multiarch-musl/busybox-armv7l
   install -m 0755 "$BB" "$R/sbin/busybox"
+fi
+if [ "${DEBUG_SHELL:-0}" = 1 ]; then
   cat >> "$R/init.ranchu.rc" <<'RC'
 
 service debugsh /sbin/busybox sh

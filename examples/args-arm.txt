@@ -13,4 +13,6 @@
 -device virtio-blk-device,drive=data
 -device virtio-blk-device,drive=cache
 -device virtio-blk-device,drive=system
+# user-mode networking through the Switch's own Wi-Fi connection
+-nic user,model=lan9118
 -display sdl

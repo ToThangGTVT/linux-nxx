@@ -1,0 +1,49 @@
+diff --git a/meson.build b/meson.build
+index 37aa88e..e1395a0 100644
+--- a/meson.build
++++ b/meson.build
+@@ -218,6 +218,8 @@ else
+   )
+ endif
+ 
++# Nintendo Switch: host test programs cannot run (and need libnx to link)
++if host_machine.system() != 'horizon'
+ pingtest = executable('pingtest', 'test/pingtest.c',
+   link_with: [ lib ],
+   c_args : cargs,
+@@ -237,6 +239,7 @@ ncsitest = executable('ncsitest', 'test/ncsitest.c',
+ )
+ 
+ test('ncsi', ncsitest)
++endif
+ 
+ if install_devel
+   install_headers(['src/libslirp.h'], subdir : 'slirp')
+diff --git a/src/slirp.c b/src/slirp.c
+index 62a018a..49718e5 100644
+--- a/src/slirp.c
++++ b/src/slirp.c
+@@ -365,7 +365,22 @@ int get_dns6_addr(struct in6_addr *pdns6_addr, uint32_t *scope_id)
+                                   scope_id, &dns6_scope_id, &dns6_addr_time);
+ }
+ 
+-#else // !defined(_WIN32) && !defined(__APPLE__)
++#elif defined(__SWITCH__)
++
++/* Horizon has no resolv.conf: ask the system (nifm) for the current DNS server */
++#include <nxcompat/net.h>
++
++int get_dns_addr(struct in_addr *pdns_addr)
++{
++    return nxc_get_dns_addr(pdns_addr);
++}
++
++int get_dns6_addr(struct in6_addr *pdns6_addr, uint32_t *scope_id)
++{
++    return -1;
++}
++
++#else // !defined(_WIN32) && !defined(__APPLE__) && !defined(__SWITCH__)
+ 
+ #if defined(__HAIKU__)
+ #define RESOLV_CONF_PATH "/boot/system/settings/network/resolv.conf"

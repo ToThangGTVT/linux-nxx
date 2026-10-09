@@ -57,6 +57,8 @@ static const char *const g_arm_args[] = {
     "-device", "virtio-blk-device,drive=data",
     "-device", "virtio-blk-device,drive=cache",
     "-device", "virtio-blk-device,drive=system",
+    /* user-mode networking (libslirp over the Switch's own connection) */
+    "-nic", "user,model=lan9118",
     "-display", "sdl",
     NULL
 };
@@ -74,6 +76,7 @@ static const NxfeProfile g_profiles[] = {
 
 static char *g_argv[NXFE_MAX_ARGS + 1];
 static bool g_boosted;
+static bool g_sockets;
 
 static void nxfe_exit(void)
 {
@@ -108,7 +111,7 @@ static void nxfe_open_log(const char *dir)
     char path[256];
 
     snprintf(path, sizeof(path), "%s/qemu.log", dir);
-    if (__nxlink_host.s_addr != 0 && R_SUCCEEDED(socketInitializeDefault())) {
+    if (__nxlink_host.s_addr != 0 && g_sockets) {
         nxlinkStdio();
         return;
     }
@@ -199,7 +202,12 @@ int nxfe_init(int *argc, char ***argv, const char *target)
         return -1;
     }
 
+    /* BSD sockets back QEMU's user-mode networking (libslirp) and nxlink */
+    g_sockets = R_SUCCEEDED(socketInitializeDefault());
     nxfe_open_log(prof->dir);
+    if (!g_sockets) {
+        printf("socketInitializeDefault failed; guest networking will not work\n");
+    }
 
     /* Overclock to 1785 MHz while QEMU runs; restored at exit */
     if (R_SUCCEEDED(appletSetCpuBoostMode(ApmCpuBoostMode_FastLoad))) {

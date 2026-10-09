@@ -204,6 +204,7 @@ gid_t getegid(void) { return 0; }
 pid_t getppid(void) { return 0; }
 
 pid_t fork(void) { errno = ENOSYS; return -1; }
+pid_t setsid(void) { errno = EPERM; return -1; }
 int execv(const char *path, char *const argv[]) { (void)path; (void)argv; errno = ENOSYS; return -1; }
 int execvp(const char *file, char *const argv[]) { (void)file; (void)argv; errno = ENOSYS; return -1; }
 pid_t waitpid(pid_t pid, int *status, int options) { (void)pid; (void)status; (void)options; errno = ECHILD; return -1; }

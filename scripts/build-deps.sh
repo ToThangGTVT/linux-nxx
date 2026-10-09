@@ -1,6 +1,6 @@
 #!/bin/bash
 # Cross-compile QEMU's dependencies for Switch into build/sysroot:
-# pixman, libffi, pcre2, libiconv, glib (patched), then libnxcompat.
+# libnxcompat, pixman, libffi, pcre2, libiconv, glib and libslirp (patched).
 set -e
 . "$(dirname "$0")/env.sh"
 SRC=$NXX_ROOT/src
@@ -40,6 +40,10 @@ make -j8 -C libcharset >/dev/null && make -j8 -C lib >/dev/null
 make -C lib install >/dev/null
 cp include/iconv.h.inst "$NXX_SYSROOT/include/iconv.h"
 
+# libslirp's Switch DNS lookup uses <nxcompat/net.h>
+step nxcompat
+make -C "$NXX_ROOT/nxcompat" install >/dev/null
+
 step glib
 meson setup --reconfigure "$B/glib" "$SRC/glib-2.82.5" --cross-file "$CROSS" --prefix="$NXX_SYSROOT" \
   -Dtests=false -Dintrospection=disabled -Dnls=disabled -Dselinux=disabled -Dxattr=false -Dlibmount=disabled \
@@ -47,6 +51,7 @@ meson setup --reconfigure "$B/glib" "$SRC/glib-2.82.5" --cross-file "$CROSS" --p
   -Dglib_assert=false -Dglib_checks=false -Dinstalled_tests=false -Doss_fuzz=disabled >/dev/null
 ninja -C "$B/glib" install >/dev/null
 
-step nxcompat
-make -C "$NXX_ROOT/nxcompat" install >/dev/null
+step libslirp
+meson setup --reconfigure "$B/libslirp" "$SRC/libslirp-v4.9.1" --cross-file "$CROSS" --prefix="$NXX_SYSROOT" >/dev/null
+ninja -C "$B/libslirp" install >/dev/null
 echo "deps installed into $NXX_SYSROOT"

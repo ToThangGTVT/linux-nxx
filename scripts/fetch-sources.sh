@@ -18,6 +18,7 @@ fetch https://github.com/libffi/libffi/releases/download/v3.4.6/libffi-3.4.6.tar
 fetch https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.44/pcre2-10.44.tar.bz2 pcre2-10.44
 fetch https://ftp.gnu.org/pub/gnu/libiconv/libiconv-1.17.tar.gz libiconv-1.17
 fetch https://download.gnome.org/sources/glib/2.82/glib-2.82.5.tar.xz glib-2.82.5
+fetch https://gitlab.freedesktop.org/slirp/libslirp/-/archive/v4.9.1/libslirp-v4.9.1.tar.gz libslirp-v4.9.1
 
 apply() {
   local dir=$1 patch=$2
@@ -29,3 +30,4 @@ apply() {
 }
 apply glib-2.82.5 "$ROOT/patches/glib-2.82.5-horizon.patch"
 apply qemu-11.1.2 "$ROOT/patches/qemu-11.1.2-horizon.patch"
+apply libslirp-v4.9.1 "$ROOT/patches/libslirp-4.9.1-horizon.patch"
