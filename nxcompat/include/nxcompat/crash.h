@@ -13,8 +13,8 @@ extern "C" {
  * hands the exception back to the system so Atmosphère still writes its own
  * crash report. abort() and svcBreak (libnx's diagAbortWithResult and
  * fatalThrow) are logged the same way (linked with --wrap); abort() then
- * breaks instead of quietly exiting. Pass -1 to only keep the system
- * behaviour.
+ * breaks instead of quietly exiting. exit() logs its status and caller.
+ * Pass -1 to only keep the system behaviour.
  */
 void nxc_crash_init(int log_fd);
 

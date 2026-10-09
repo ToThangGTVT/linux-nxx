@@ -12,8 +12,8 @@ CFLAGS := -g -O2 -Wall -Wextra -Wno-unused-parameter -ffunction-sections \
           -march=armv8-a+crc+crypto -mtune=cortex-a57 -mtp=soft -fPIE \
           -D__SWITCH__ -Iinclude -I$(DEVKITPRO)/libnx/include
 
-# abort and svcBreak: logged by the crash logger (src/crash.c)
-WRAPS := poll select fcntl pthread_create abort svcBreak
+# abort, svcBreak and exit: logged by the crash logger (src/crash.c)
+WRAPS := poll select fcntl pthread_create abort svcBreak exit
 
 all: $(BUILD)/libnxcompat.a
 

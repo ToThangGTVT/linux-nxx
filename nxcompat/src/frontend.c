@@ -78,6 +78,7 @@ static const NxfeProfile g_profiles[] = {
 static char *g_argv[NXFE_MAX_ARGS + 1];
 static bool g_boosted;
 static bool g_sockets;
+static bool g_started;
 
 static void nxfe_exit(void)
 {
@@ -86,6 +87,16 @@ static void nxfe_exit(void)
     }
     romfsExit();
     socketExit();
+    if (g_started) {
+        /*
+         * QEMU's threads are still alive and their stacks and the JIT buffer
+         * still lock heap pages. Returning to hbloader would leave them
+         * running inside the next homebrew (the menu then crashes with
+         * 2168-0002), so end the whole process instead.
+         */
+        fflush(stdout);
+        svcExitProcess();
+    }
 }
 
 /* Block on a text console until the user presses + */
@@ -223,6 +234,7 @@ int nxfe_init(int *argc, char ***argv, const char *target)
         g_boosted = true;
     }
 
+    g_started = true;
     if (*argc > 1) {
         return 0; /* explicit arguments, e.g. from nxlink */
     }

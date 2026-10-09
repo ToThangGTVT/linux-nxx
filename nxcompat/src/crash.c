@@ -153,6 +153,7 @@ static void stack_scan(u64 sp)
 
 Result __real_svcBreak(u32 reason, uintptr_t address, uintptr_t size);
 void __real_abort(void);
+void __real_exit(int status);
 
 static void dump_here(void)
 {
@@ -199,6 +200,16 @@ void __wrap_abort(void)
     }
     __real_svcBreak(BreakReason_Panic, (uintptr_t)&rc, sizeof(rc));
     __real_abort();
+}
+
+/* QEMU often quits without a message: log the status and who called exit() */
+void __wrap_exit(int status)
+{
+    if (g_log_fd >= 0) {
+        out("\n*** exit(%d)\n", status);
+        dump_here();
+    }
+    __real_exit(status);
 }
 
 void __libnx_exception_handler(ThreadExceptionDump *ctx)
